@@ -1,0 +1,37 @@
+{
+  "name": "opencode-copilot-multi-auth",
+  "version": "0.3.0",
+  "description": "Multi-account GitHub Copilot auth plugin for Opencode with quota-based auto switch and model-aware routing",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "opencode",
+    "github-copilot",
+    "plugin",
+    "multi-account"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^0.15.30"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
