@@ -1,5 +1,5 @@
 {
-  "name": "@geederx/opencode-copilot-multi-auth",
+  "name": "@geeder/opencode-copilot-multi-auth",
   "version": "0.3.0",
   "description": "OpenCode plugin for GitHub Copilot multi-account management with automatic quota-aware failover and model-aware routing",
   "type": "module",

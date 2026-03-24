@@ -27,14 +27,14 @@ This is not only manual priority ordering. It is automatic account-pool rotation
 ### Option A: npm
 
 ```bash
-npm install -g @geederx/opencode-copilot-multi-auth@0.3.0
+npm install -g @geeder/opencode-copilot-multi-auth@0.3.0
 ```
 
 Add to `opencode.json`:
 
 ```json
 {
-  "plugin": ["@geederx/opencode-copilot-multi-auth@0.3.0"]
+  "plugin": ["@geeder/opencode-copilot-multi-auth@0.3.0"]
 }
 ```
 
