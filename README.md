@@ -104,6 +104,104 @@ Example:
 - `modelRule.allowlist`: only these models are allowed for the account.
 - `modelRule.blocklist`: these models are excluded for the account.
 
+## Model Rules (modelRule)
+
+The `modelRule` field controls which models can use each account. It has two settings:
+
+### allowlist (allowedModels)
+
+If `allowlist` is **not empty**, only those models can use this account:
+
+```json
+"modelRule": {
+  "allowlist": ["gpt-4o", "gpt-4-turbo"],
+  "blocklist": []
+}
+```
+
+This account will **only** handle requests for `gpt-4o` or `gpt-4-turbo`. Other models will skip this account.
+
+### blocklist (deniedModels)
+
+If `blocklist` is **not empty**, those models **cannot** use this account:
+
+```json
+"modelRule": {
+  "allowlist": [],
+  "blocklist": ["o1", "o1-preview"]
+}
+```
+
+This account will handle all models **except** `o1` and `o1-preview`.
+
+### No restrictions
+
+Leave both empty to allow all models:
+
+```json
+"modelRule": {
+  "allowlist": [],
+  "blocklist": []
+}
+```
+
+### How it works
+
+1. If `allowlist` is not empty: only allowlist models are permitted
+2. If `blocklist` is not empty: blocklist models are denied
+3. If both are empty: all models are allowed
+4. If both have values: allowlist is checked first, then blocklist is applied
+
+When a model request comes in, the plugin skips any account whose model rules don't permit it and rotates to the next eligible account.
+
+### Real-world example
+
+```json
+{
+  "version": 1,
+  "accounts": [
+    {
+      "id": "work-gpt4",
+      "name": "copilot-work-tier1",
+      "refreshToken": "gho_xxxx...",
+      "priority": 10,
+      "enabled": true,
+      "modelRule": {
+        "allowlist": ["gpt-4o", "gpt-4-turbo"],
+        "blocklist": []
+      }
+    },
+    {
+      "id": "personal-all",
+      "name": "copilot-personal",
+      "refreshToken": "gho_yyyy...",
+      "priority": 20,
+      "enabled": true,
+      "modelRule": {
+        "allowlist": [],
+        "blocklist": []
+      }
+    },
+    {
+      "id": "test-no-o1",
+      "name": "copilot-test",
+      "refreshToken": "gho_zzzz...",
+      "priority": 30,
+      "enabled": true,
+      "modelRule": {
+        "allowlist": [],
+        "blocklist": ["o1", "o1-preview"]
+      }
+    }
+  ]
+}
+```
+
+In this setup:
+- `gpt-4o` request → tries `work-gpt4` (allowed) → falls back to `personal-all` or `test-no-o1`
+- `o1` request → skips `work-gpt4` and `test-no-o1` → only uses `personal-all`
+- `gpt-3.5-turbo` request → skips `work-gpt4` → uses `personal-all` or `test-no-o1`
+
 ## Account ID and Deduplication
 
 - If `Account ID` is provided during login, it is used as `id`.
