@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile, rename, unlink } from "node:fs/promises";
+import { chmod } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -163,6 +164,81 @@ function normalizeStorage(raw: unknown): StorageShape {
   };
 }
 
+// Keychain abstraction: prefer OS keychain via keytar when available.
+const KEYCHAIN_SERVICE = "opencode-copilot-multi-auth";
+let keychainInitialized = false;
+let keychainAvailableFlag = false;
+let keytarModule: any = null;
+
+async function initKeychain(): Promise<void> {
+  if (keychainInitialized) return;
+  keychainInitialized = true;
+
+  // Test overrides for unit tests / CI
+  if (process.env.COPILOT_FORCE_NO_KEYCHAIN === "1") {
+    keychainAvailableFlag = false;
+    return;
+  }
+
+  if (process.env.COPILOT_FAKE_KEYCHAIN === "1") {
+    // simple in-memory fake keychain for tests
+    if (!(globalThis as any).__fake_keychain_map) (globalThis as any).__fake_keychain_map = new Map<string, string>();
+    keychainAvailableFlag = true;
+    keytarModule = {
+      getPassword: async (_service: string, account: string) => (globalThis as any).__fake_keychain_map.get(account) ?? null,
+      setPassword: async (_service: string, account: string, password: string) => {
+        (globalThis as any).__fake_keychain_map.set(account, password);
+        return true;
+      },
+      deletePassword: async (_service: string, account: string) => (globalThis as any).__fake_keychain_map.delete(account) ? true : false,
+    };
+    return;
+  }
+
+  try {
+    // Attempt dynamic import of keytar
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = await import("keytar");
+    if (mod && typeof mod.getPassword === "function") {
+      keytarModule = mod;
+      keychainAvailableFlag = true;
+    }
+  } catch {
+    keychainAvailableFlag = false;
+  }
+}
+
+async function keychainSet(accountId: string, token: string): Promise<boolean> {
+  await initKeychain();
+  if (!keychainAvailableFlag || !keytarModule) return false;
+  try {
+    await keytarModule.setPassword(KEYCHAIN_SERVICE, accountId, token);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function keychainGet(accountId: string): Promise<string | null> {
+  await initKeychain();
+  if (!keychainAvailableFlag || !keytarModule) return null;
+  try {
+    return await keytarModule.getPassword(KEYCHAIN_SERVICE, accountId);
+  } catch {
+    return null;
+  }
+}
+
+async function keychainDelete(accountId: string): Promise<boolean> {
+  await initKeychain();
+  if (!keychainAvailableFlag || !keytarModule) return false;
+  try {
+    return await keytarModule.deletePassword(KEYCHAIN_SERVICE, accountId);
+  } catch {
+    return false;
+  }
+}
+
 function normalizeAccountID(value: string | undefined): string | undefined {
   if (!value) return undefined;
   const trimmed = value.trim();
@@ -259,8 +335,31 @@ async function saveStorage(storage: StorageShape): Promise<void> {
 
 async function upsertOAuthToken(refreshToken: string): Promise<void> {
   if (!refreshToken.trim()) return;
+  // Prefer storing refresh tokens in keychain when available.
+  // If keychain write fails, fall back to file storage with restricted perms.
   const storage = await loadStorage();
-  storage.accounts = mergeAccount(storage.accounts, refreshToken);
+  const updated = mergeAccount(storage.accounts, refreshToken);
+
+  // Attempt to store secret in keychain per-account; use derived id
+  const id = shaTokenId(refreshToken);
+  const keychainOk = await keychainSet(id, refreshToken).catch(() => false);
+  if (keychainOk) {
+    // Remove raw refresh token from storage and keep placeholder
+    const sanitized = updated.map((acc) => ({
+      ...acc,
+      refreshToken: acc.id === id ? "[KEYCHAIN]" : acc.refreshToken,
+    }));
+    storage.accounts = sanitized;
+  } else {
+    // fallback: store full token in file storage but ensure perms and warn
+    storage.accounts = updated;
+    try {
+      const filePath = getStorageFilePath();
+      await chmod(dirname(filePath), 0o700).catch(() => undefined);
+      // Note: file itself will be written by saveStorage and created with user's umask
+    } catch {}
+  }
+
   await saveStorage(storage);
 }
 
@@ -268,7 +367,7 @@ async function upsertOAuthToken(refreshToken: string): Promise<void> {
  * Get or refresh a valid OAuth access token for a Copilot account.
  * GitHub OAuth tokens are short-lived (1 hour), so we cache and refresh as needed.
  */
-async function getValidAccessToken(account: StoredAccount): Promise<string> {
+  async function getValidAccessToken(account: StoredAccount): Promise<string> {
   const now = Date.now() / 1000; // seconds
   const expiresAt = (account.accessTokenExpiresAt ?? 0) / 1000;
   const timeUntilExpiry = expiresAt - now;
@@ -337,7 +436,14 @@ async function getValidAccessToken(account: StoredAccount): Promise<string> {
   }
 
   try {
-    const result = await refreshAccessToken(account.refreshToken);
+    // If the refresh token is stored as placeholder, try reading from keychain
+    let refreshToUse = account.refreshToken;
+    if (refreshToUse === "[KEYCHAIN]") {
+      const fromKeychain = await keychainGet(account.id).catch(() => null);
+      if (fromKeychain) refreshToUse = fromKeychain;
+    }
+
+    const result = await refreshAccessToken(refreshToUse);
 
     // Persist new access token and expiry
     const storage = await loadStorage();
@@ -619,8 +725,19 @@ export const CopilotMultiAuthPlugin: Plugin = async (_input: PluginInput): Promi
             log(`OAuth authorization successful, storing refresh token`, "info");
 
             try {
+              // On new authorization, attempt to store secret in keychain first.
+              const derivedId = shaTokenId(data.access_token);
+              const kcOk = await keychainSet(derivedId, data.access_token).catch(() => false);
               const storage = await loadStorage();
               storage.accounts = mergeAccount(storage.accounts, data.access_token, { id: accountID });
+
+              if (kcOk) {
+                // Replace raw token with placeholder for security
+                storage.accounts = storage.accounts.map((acc) =>
+                  acc.id === derivedId ? { ...acc, refreshToken: "[KEYCHAIN]" } : acc,
+                );
+              }
+
               await saveStorage(storage);
               log(`Successfully saved account to local storage (${storage.accounts.length} total accounts)`, "info");
             } catch (err) {
@@ -845,6 +962,8 @@ export const __testExports = {
   markModelUnsupportedForAccount,
   isModelUnsupportedForAccount,
   getValidAccessToken,
+  keychainSet,
+  keychainGet,
   log,
 };
 

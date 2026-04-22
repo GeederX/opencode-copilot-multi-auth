@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { __testExports } from "./index.js";
 import { invalidateStorageCache } from "./index.js";
+import { describe as ddescribe } from "vitest";
 
 describe("multi-auth oauth helpers", () => {
   it("uses stable account id from token hash", () => {
@@ -92,6 +93,22 @@ describe("multi-auth oauth helpers", () => {
       // @ts-ignore
       globalThis.fetch = originalFetch;
     }
+  });
+
+  it("uses keychain when available for storing and retrieving tokens", async () => {
+    // enable fake keychain
+    process.env.COPILOT_FAKE_KEYCHAIN = "1";
+    // ensure fake keychain cleared
+    // @ts-ignore
+    if ((globalThis as any).__fake_keychain_map) (globalThis as any).__fake_keychain_map.clear();
+
+    const id = __testExports.shaTokenId("secret-token-1");
+    const setOk = await __testExports.keychainSet(id, "secret-token-1");
+    expect(setOk).toBe(true);
+    const got = await __testExports.keychainGet(id);
+    expect(got).toBe("secret-token-1");
+
+    delete process.env.COPILOT_FAKE_KEYCHAIN;
   });
 
   it("throws explicit error when refresh fails with invalid_grant", async () => {

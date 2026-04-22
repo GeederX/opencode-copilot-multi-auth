@@ -230,4 +230,18 @@ Supported levels: `info`, `warn`, `error`.
 - Provider ID is `github-copilot`, so this plugin overrides built-in Copilot auth behavior when installed.
 - Cooldown after quota hit uses `Retry-After` when present, otherwise defaults to 90 seconds.
 - Maximum retry attempts are bounded by account count and internal cap.
+ - Maximum retry attempts are bounded by account count and internal cap.
 
+## Security behavior (keychain & fallback)
+
+This plugin prefers to store sensitive refresh tokens in the operating system credential store (Keychain on macOS, Windows Credential Manager, or libsecret on Linux) when available. The plugin attempts a dynamic import of `keytar` and writes tokens keyed by a derived account ID.
+
+If the OS keychain is not available or writing to it fails, the plugin falls back to storing tokens in the JSON file under your config directory. The file storage is written atomically and the plugin attempts to set restrictive directory permissions (700) — however filesystem-based storage is less secure and may expose tokens if your machine is compromised.
+
+Migration: On login or when reading an account whose `refreshToken` equals the placeholder `[KEYCHAIN]`, the plugin will attempt to read the real token from the OS keychain and use it for refresh operations. When possible, new tokens are moved into the keychain and the JSON is sanitized to avoid plaintext secrets.
+
+Environment variables for testing and behavior:
+  - `COPILOT_FORCE_NO_KEYCHAIN=1` — force-disable keychain usage (useful in CI)
+  - `COPILOT_FAKE_KEYCHAIN=1` — use an in-memory fake keychain for tests
+
+NEVER log secrets. The plugin never prints refresh/access tokens to logs.
