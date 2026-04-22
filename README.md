@@ -263,7 +263,35 @@ If the OS keychain is not available or writing to it fails, the plugin falls bac
 Migration: On login or when reading an account whose `refreshToken` equals the placeholder `[KEYCHAIN]`, the plugin will attempt to read the real token from the OS keychain and use it for refresh operations. When possible, new tokens are moved into the keychain and the JSON is sanitized to avoid plaintext secrets.
 
 Environment variables for testing and behavior:
-  - `COPILOT_FORCE_NO_KEYCHAIN=1` — force-disable keychain usage (useful in CI)
-  - `COPILOT_FAKE_KEYCHAIN=1` — use an in-memory fake keychain for tests
+- `COPILOT_FORCE_NO_KEYCHAIN=1` — force-disable keychain usage (useful in CI)
+- `COPILOT_FAKE_KEYCHAIN=1` — use an in-memory fake keychain for tests
+
+Optional OS keychain dependency (keytar)
+---------------------------------------
+
+This plugin will try to use the optional native module `keytar` to store refresh tokens in the
+operating system credential store (macOS Keychain, Windows Credential Manager, libsecret on Linux).
+
+When to install
+ - Operators who run this plugin on developer machines or servers with a secure OS keyring
+   should install `keytar` to improve security and keep refresh tokens out of local files.
+
+How to install
+ - Globally via npm: `npm install -g keytar`
+ - Locally in your environment: `npm install --no-save keytar`
+
+Behavior when keytar is missing
+ - The plugin does a dynamic import of `keytar`. If it is not installed or fails to load,
+   the plugin falls back to storing refresh tokens in the JSON config file under your
+   config directory. The file storage is written atomically and the plugin attempts to set
+   restrictive directory permissions (700), but filesystem-based storage is less secure.
+
+CI and testing
+ - In CI environments you may prefer NOT to install native modules. Use `COPILOT_FORCE_NO_KEYCHAIN=1`
+   to force the plugin to skip keychain attempts. Tests may set `COPILOT_FAKE_KEYCHAIN=1` to use an
+   in-memory fake keychain for deterministic behavior.
+
+Security recommendation
+ - Prefer installing `keytar` on machines you control to reduce exposure of long-lived refresh tokens.
 
 NEVER log secrets. The plugin never prints refresh/access tokens to logs.
