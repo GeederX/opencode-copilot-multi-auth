@@ -24,10 +24,10 @@ This is not only manual priority ordering. It is automatic account-pool rotation
 
 ## Install
 
-### Option A: npm
+### Option A: pnpm
 
 ```bash
-npm install -g @geeder/opencode-copilot-multi-auth@0.3.0
+pnpm install -g @geeder/opencode-copilot-multi-auth@0.3.0
 ```
 
 Add to `opencode.json`:
@@ -285,8 +285,8 @@ When to install
    should install `keytar` to improve security and keep refresh tokens out of local files.
 
 How to install
- - Globally via npm: `npm install -g keytar`
- - Locally in your environment: `npm install --no-save keytar`
+  - Globally via pnpm: `pnpm install -g keytar`
+  - Locally in your environment: `pnpm add --no-save keytar`
 
 Behavior when keytar is missing
  - The plugin does a dynamic import of `keytar`. If it is not installed or fails to load,
@@ -307,7 +307,7 @@ NEVER log secrets. The plugin never prints refresh/access tokens to logs.
 ## Coverage
 
 - We run tests with coverage in CI and upload the coverage report as an artifact named `coverage-report`.
-- Locally run: `npm run test:coverage` (this uses Vitest coverage and outputs `coverage/` with lcov and text reports).
+- Locally run: `pnpm run test:coverage` (this uses Vitest coverage and outputs `coverage/` with lcov and text reports).
 
 Coverage gate policy:
 - CI enforces minimum global thresholds to avoid silent regressions.

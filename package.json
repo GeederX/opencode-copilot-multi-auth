@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "prepublishOnly": "npm run build && npm run test"
+    "prepublishOnly": "pnpm run build && pnpm run test"
   },
   "keywords": [
     "opencode",
