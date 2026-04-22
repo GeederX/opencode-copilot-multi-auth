@@ -269,34 +269,102 @@ async function upsertOAuthToken(refreshToken: string): Promise<void> {
  * GitHub OAuth tokens are short-lived (1 hour), so we cache and refresh as needed.
  */
 async function getValidAccessToken(account: StoredAccount): Promise<string> {
-  const now = Date.now() / 1000; // Convert to seconds
+  const now = Date.now() / 1000; // seconds
   const expiresAt = (account.accessTokenExpiresAt ?? 0) / 1000;
   const timeUntilExpiry = expiresAt - now;
 
-  // If we have a cached token that won't expire in the next TOKEN_REFRESH_MARGIN_SECONDS, use it
+  // Prefer a cached valid access token (with safety margin)
   if (account.accessToken && timeUntilExpiry > TOKEN_REFRESH_MARGIN_SECONDS) {
     return account.accessToken;
   }
 
-  log(`Refreshing OAuth access token for account ${account.name} (${account.id})`, "info");
+  log(`No valid cached access token for account ${account.name} (${account.id}), attempting refresh`, "info");
 
-  // Get new access token from refresh token
-  // Note: GitHub's device auth flow returns access_token directly
-  // If using refresh_token grant, we would need to implement that here
-  // For now, the access token IS the refresh token in our flow
-  // TODO: Implement proper refresh token flow if GitHub Copilot API requires it
+  // Attempt refresh flow using stored refresh token.
+  // We expect the token endpoint to accept a refresh_token grant and return { access_token, expires_in }
+  async function refreshAccessToken(refreshToken: string): Promise<{ access: string; expiresIn: number }> {
+    const urls = getUrls("github.com");
+    try {
+      const res = await fetch(urls.ACCESS_TOKEN_URL, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "User-Agent": USER_AGENT,
+        },
+        body: JSON.stringify({
+          client_id: CLIENT_ID,
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+        }),
+      });
 
-  // Update cached token in storage
-  const storage = await loadStorage();
-  const accountIndex = storage.accounts.findIndex((a) => a.id === account.id);
-  if (accountIndex >= 0) {
-    const expiresInSeconds = 3600; // Assume 1 hour expiry
-    storage.accounts[accountIndex].accessToken = account.refreshToken;
-    storage.accounts[accountIndex].accessTokenExpiresAt = Date.now() + expiresInSeconds * 1000;
-    await saveStorage(storage);
+      const body = await res.clone().json().catch(() => ({}));
+
+      if (!res.ok) {
+        // Distinguish invalid_grant (non-recoverable) vs transient errors
+        const err = typeof body.error === "string" ? body.error : undefined;
+        if (res.status === 400 && err === "invalid_grant") {
+          const e = new Error("invalid_grant");
+          (e as any).code = "invalid_grant";
+          throw e;
+        }
+        const e = new Error("token_refresh_failed");
+        (e as any).status = res.status;
+        throw e;
+      }
+
+      const access = typeof body.access_token === "string" ? body.access_token : undefined;
+      const expiresIn = typeof body.expires_in === "number" ? body.expires_in : undefined;
+
+      if (!access) {
+        const e = new Error("token_refresh_no_access_token");
+        throw e;
+      }
+
+      return { access, expiresIn: expiresIn ?? 3600 };
+    } catch (err) {
+      // Re-throw to be handled by caller
+      throw err;
+    }
   }
 
-  return account.refreshToken;
+  // If we don't have a refresh token, we cannot refresh -> explicit error to force re-auth
+  if (!account.refreshToken || !account.refreshToken.trim()) {
+    const e = new Error("no_refresh_token");
+    (e as any).code = "no_refresh_token";
+    throw e;
+  }
+
+  try {
+    const result = await refreshAccessToken(account.refreshToken);
+
+    // Persist new access token and expiry
+    const storage = await loadStorage();
+    const accountIndex = storage.accounts.findIndex((a) => a.id === account.id);
+    if (accountIndex >= 0) {
+      storage.accounts[accountIndex].accessToken = result.access;
+      storage.accounts[accountIndex].accessTokenExpiresAt = Date.now() + result.expiresIn * 1000;
+      await saveStorage(storage);
+    }
+
+    return result.access;
+  } catch (err: any) {
+    // For invalid_grant or missing refresh token, surface explicit error so caller can force re-auth
+    if (err && err.code === "invalid_grant") {
+      log(`Refresh failed with invalid_grant for account ${account.id}`, "error");
+      const e = new Error("invalid_grant");
+      (e as any).code = "invalid_grant";
+      throw e;
+    }
+
+    // For other errors, treat as transient and rethrow so caller may try other accounts
+    log(
+      `Refresh failed for account ${account.id}: ${err instanceof Error ? err.message : String(err)}`,
+      "warn",
+    );
+    throw err;
+  }
 }
 
 function modelAllowedByRule(modelID: string | undefined, rule: ModelRule): boolean {

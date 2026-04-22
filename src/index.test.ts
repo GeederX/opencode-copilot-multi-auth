@@ -64,4 +64,55 @@ describe("multi-auth oauth helpers", () => {
     const s1 = await __testExports.getOpencodeConfigDirectory();
     expect(typeof s1).toBe("string");
   });
+
+  it("prefers valid access token over refresh and refreshes when expired", async () => {
+    // Create an account with an expired access token and a fake refresh token
+    const account = __testExports.mergeAccount([], "refresh-token")[0]!;
+    account.accessToken = "old-access";
+    account.accessTokenExpiresAt = Date.now() - 1000; // expired
+
+    // Mock fetch to simulate token endpoint returning new access token
+    // @ts-ignore globalThis for test environment
+    const originalFetch = globalThis.fetch;
+    // token endpoint
+    // @ts-ignore
+    globalThis.fetch = (url: RequestInfo, init?: RequestInit) => {
+      const s = url.toString();
+      if (s.includes("/login/oauth/access_token")) {
+        return Promise.resolve(new Response(JSON.stringify({ access_token: "new-access", expires_in: 3600 }), { status: 200 }));
+      }
+      return Promise.resolve(new Response("ok", { status: 200 }));
+    };
+
+    try {
+      const token = await __testExports.getValidAccessToken(account);
+      expect(token).toBe("new-access");
+    } finally {
+      // restore
+      // @ts-ignore
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("throws explicit error when refresh fails with invalid_grant", async () => {
+    const account = __testExports.mergeAccount([], "refresh-token")[0]!;
+    account.accessToken = undefined;
+    account.accessTokenExpiresAt = undefined;
+
+    const originalFetch = globalThis.fetch;
+    // @ts-ignore
+    globalThis.fetch = (url: RequestInfo, init?: RequestInit) => {
+      if (url.toString().includes("/login/oauth/access_token")) {
+        return Promise.resolve(new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 }));
+      }
+      return Promise.resolve(new Response("ok", { status: 200 }));
+    };
+
+    try {
+      await expect(__testExports.getValidAccessToken(account)).rejects.toThrow();
+    } finally {
+      // @ts-ignore
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
