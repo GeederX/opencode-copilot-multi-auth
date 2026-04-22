@@ -254,11 +254,19 @@ These metrics are intentionally in-memory and ephemeral; they are intended for d
 - Maximum retry attempts are bounded by account count and internal cap.
  - Maximum retry attempts are bounded by account count and internal cap.
 
-## Security behavior (keychain & fallback)
+## Security behavior (keychain vs fallback)
 
 This plugin prefers to store sensitive refresh tokens in the operating system credential store (Keychain on macOS, Windows Credential Manager, or libsecret on Linux) when available. The plugin attempts a dynamic import of `keytar` and writes tokens keyed by a derived account ID.
 
-If the OS keychain is not available or writing to it fails, the plugin falls back to storing tokens in the JSON file under your config directory. The file storage is written atomically and the plugin attempts to set restrictive directory permissions (700) — however filesystem-based storage is less secure and may expose tokens if your machine is compromised.
+Fallback file storage: when OS keychain is not available or writing to it fails, the plugin stores tokens in the JSON file under your config directory. File storage is a worst-case fallback and carries additional risks:
+
+- The JSON file is written atomically (write to temp file then rename) to avoid partial writes.
+- The plugin attempts best-effort hardening: it sets directory permissions to 0700 and the final file to 0600 when possible. These operations are best-effort and may fail on some filesystems or platforms.
+- Filesystem-based storage is less secure than an OS keychain. If an attacker gains local access to your account or a backup containing this file, refresh tokens may be exfiltrated.
+
+Operational model summary:
+- Preferred path: keychain available -> refresh token stored in OS keychain, JSON uses `[KEYCHAIN]` placeholder.
+- Fallback path: keychain unavailable/fails -> token stored in JSON with atomic writes and permission hardening best-effort.
 
 Migration: On login or when reading an account whose `refreshToken` equals the placeholder `[KEYCHAIN]`, the plugin will attempt to read the real token from the OS keychain and use it for refresh operations. When possible, new tokens are moved into the keychain and the JSON is sanitized to avoid plaintext secrets.
 
@@ -299,7 +307,7 @@ NEVER log secrets. The plugin never prints refresh/access tokens to logs.
 ## Coverage
 
 - We run tests with coverage in CI and upload the coverage report as an artifact named `coverage-report`.
-- Locally run: `npm run test:coverage` (this uses Vitest + c8 and outputs `coverage/` with lcov and text reports).
+- Locally run: `npm run test:coverage` (this uses Vitest coverage and outputs `coverage/` with lcov and text reports).
 
 Coverage gate policy:
 - CI enforces minimum global thresholds to avoid silent regressions.

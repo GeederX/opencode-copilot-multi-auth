@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { __testExports } from "./index.js";
 import { invalidateStorageCache } from "./index.js";
-import { describe as ddescribe } from "vitest";
 
 describe("multi-auth oauth helpers", () => {
   it("uses stable account id from token hash", () => {
@@ -187,6 +186,7 @@ describe("multi-auth oauth helpers", () => {
     const origWrite = originalFs.writeFile;
     const origRename = originalFs.rename;
     const origUnlink = originalFs.unlink;
+    const origChmod = originalFs.chmod;
 
     (originalFs as any).mkdir = async () => {
       calls.push("mkdir");
@@ -204,6 +204,10 @@ describe("multi-auth oauth helpers", () => {
       calls.push(`unlink:${path}`);
       return true as any;
     };
+    (originalFs as any).chmod = async (path: string, mode: number) => {
+      calls.push(`chmod:${path}:${mode}`);
+      return undefined as any;
+    };
 
     try {
       const storage = { version: 1, accounts: [__testExports.mergeAccount([], "tkn")[0]] };
@@ -211,13 +215,16 @@ describe("multi-auth oauth helpers", () => {
       // Expect write then rename called
       const wrote = calls.some((c) => c.startsWith("write:"));
       const renamed = calls.some((c) => c.startsWith("rename:"));
+      const chmodCalled = calls.some((c) => c.startsWith("chmod:"));
       expect(wrote).toBe(true);
       expect(renamed).toBe(true);
+      expect(chmodCalled).toBe(true);
     } finally {
       (originalFs as any).mkdir = origMkdir;
       (originalFs as any).writeFile = origWrite;
       (originalFs as any).rename = origRename;
       (originalFs as any).unlink = origUnlink;
+      (originalFs as any).chmod = origChmod;
       invalidateStorageCache();
     }
   });
@@ -230,6 +237,7 @@ describe("multi-auth oauth helpers", () => {
     const origWrite = originalFs.writeFile;
     const origRename = originalFs.rename;
     const origUnlink = originalFs.unlink;
+    const origChmod = originalFs.chmod;
 
     (originalFs as any).mkdir = async () => undefined as any;
     (originalFs as any).writeFile = async (path: string, contents: string) => {
@@ -243,6 +251,7 @@ describe("multi-auth oauth helpers", () => {
       unlinkCalledWith = path;
       return true as any;
     };
+    (originalFs as any).chmod = async (_path: string, _mode: number) => undefined as any;
 
     try {
       const storage = { version: 1, accounts: [__testExports.mergeAccount([], "tkn")[0]] };
@@ -254,6 +263,7 @@ describe("multi-auth oauth helpers", () => {
       (originalFs as any).writeFile = origWrite;
       (originalFs as any).rename = origRename;
       (originalFs as any).unlink = origUnlink;
+      (originalFs as any).chmod = origChmod;
       invalidateStorageCache();
     }
   });

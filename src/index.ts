@@ -384,6 +384,10 @@ async function saveStorage(storage: StorageShape): Promise<void> {
   try {
     await __fs.writeFile(tempPath, contents, "utf8");
     await __fs.rename(tempPath, filePath);
+    // Best-effort hardening: final file readable/writable only by owner.
+    try {
+      await __fs.chmod(filePath, 0o600).catch(() => undefined);
+    } catch {}
   } catch (err) {
     // Best-effort cleanup of temp file
     try {
