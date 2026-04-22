@@ -20,13 +20,13 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: ${{ matrix.node-version }}
-          cache: 'pnpm'
+          cache: 'npm'
       
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci --prefer-offline --no-audit
       
       - name: Run tests with coverage
-        run: pnpm run test:coverage
+        run: npm run test:coverage
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
@@ -47,10 +47,10 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '20.x'
-          cache: 'pnpm'
+          cache: 'npm'
       
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci --prefer-offline --no-audit
       
       - name: Check for unused dependencies
-        run: pnpm list --depth=0
+        run: npm ls --depth=0
