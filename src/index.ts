@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rename, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -212,17 +212,49 @@ function mergeAccount(
   return accounts.map((acc, idx) => (idx === existingIndex ? merged : acc));
 }
 
-async function loadStorage(): Promise<StorageShape> {
-  const filePath = getStorageFilePath();
-  const raw = await readFile(filePath, "utf8").catch(() => "");
-  if (!raw) return { version: 1, accounts: [] };
-  return normalizeStorage(parseJson<unknown>(raw));
+// In-memory cache to avoid hot-path disk I/O. Lazy-loaded on first access.
+let storageCache: { value: StorageShape; loadedAt: number } | null = null;
+const STORAGE_CACHE_TTL_MS = Number(process.env.COPILOT_STORAGE_CACHE_TTL_MS || 5000);
+
+export function invalidateStorageCache() {
+  storageCache = null;
 }
 
+async function loadStorage(): Promise<StorageShape> {
+  // Return cached value when available and fresh
+  if (storageCache && Date.now() - storageCache.loadedAt < STORAGE_CACHE_TTL_MS) {
+    return storageCache.value;
+  }
+
+  const filePath = getStorageFilePath();
+  const raw = await readFile(filePath, "utf8").catch(() => "");
+  const parsed = raw ? normalizeStorage(parseJson<unknown>(raw)) : { version: 1, accounts: [] };
+
+  storageCache = { value: parsed, loadedAt: Date.now() };
+  return parsed;
+}
+
+// Atomic save: write to temp file in same dir then rename to final path.
 async function saveStorage(storage: StorageShape): Promise<void> {
   const filePath = getStorageFilePath();
   await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(filePath, JSON.stringify(storage, null, 2), "utf8");
+
+  const tempPath = `${filePath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const contents = JSON.stringify(storage, null, 2);
+
+  try {
+    await writeFile(tempPath, contents, "utf8");
+    await rename(tempPath, filePath);
+  } catch (err) {
+    // Best-effort cleanup of temp file
+    try {
+      await unlink(tempPath).catch(() => undefined);
+    } catch {}
+    throw err;
+  } finally {
+    // Update in-memory cache to reflect latest persisted storage
+    storageCache = { value: storage, loadedAt: Date.now() };
+  }
 }
 
 async function upsertOAuthToken(refreshToken: string): Promise<void> {
