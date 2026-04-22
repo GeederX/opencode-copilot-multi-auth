@@ -295,3 +295,8 @@ Security recommendation
  - Prefer installing `keytar` on machines you control to reduce exposure of long-lived refresh tokens.
 
 NEVER log secrets. The plugin never prints refresh/access tokens to logs.
+
+## Coverage
+
+- We run tests with coverage in CI and upload the coverage report as an artifact named `coverage-report`.
+- Locally run: `npm run test:coverage` (this uses Vitest + c8 and outputs `coverage/` with lcov and text reports).
