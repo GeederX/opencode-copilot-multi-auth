@@ -889,10 +889,10 @@ export const CopilotMultiAuthPlugin: Plugin = async (_input: PluginInput): Promi
             const maxAttempts = Math.max(1, Math.min(DEFAULT_MAX_ATTEMPTS, accounts.length));
 
             let lastResponse: Response | undefined;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-              // record attempt metric
-              recordAttempt(selected?.id);
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
               const selected = pickAccount(accounts, modelID, excluded);
+              // record attempt metric for selected account (if any)
+              recordAttempt(selected?.id);
               if (!selected) {
                 log(`No available accounts after ${attempt} attempts`, "warn");
                 break;

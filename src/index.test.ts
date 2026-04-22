@@ -154,4 +154,107 @@ describe("multi-auth oauth helpers", () => {
     const metricsObj = __testExports.__metrics_get();
     expect(typeof metricsObj).toBe("object");
   });
+
+  it("loadStorage uses in-memory cache and avoids re-reading disk within TTL", async () => {
+    // ensure fresh cache
+    invalidateStorageCache();
+
+    const originalFs = __testExports.__fs;
+    let readCalls = 0;
+    // mock readFile to count calls by overriding the method on the live object
+    const originalRead = originalFs.readFile;
+    (originalFs as any).readFile = async (path: string, enc: string) => {
+      readCalls += 1;
+      return JSON.stringify({ version: 1, accounts: [] });
+    };
+
+    try {
+      const s1 = await (__testExports.loadStorage as any)();
+      const s2 = await (__testExports.loadStorage as any)();
+      expect(readCalls).toBe(1);
+      expect(s1).toEqual(s2);
+    } finally {
+      // restore
+      (originalFs as any).readFile = originalRead;
+      invalidateStorageCache();
+    }
+  });
+
+  it("saveStorage writes to temp file then renames (happy path)", async () => {
+    const originalFs = __testExports.__fs;
+    const calls: string[] = [];
+    const origMkdir = originalFs.mkdir;
+    const origWrite = originalFs.writeFile;
+    const origRename = originalFs.rename;
+    const origUnlink = originalFs.unlink;
+
+    (originalFs as any).mkdir = async () => {
+      calls.push("mkdir");
+      return undefined as any;
+    };
+    (originalFs as any).writeFile = async (path: string, contents: string) => {
+      calls.push(`write:${path}`);
+      return undefined as any;
+    };
+    (originalFs as any).rename = async (from: string, to: string) => {
+      calls.push(`rename:${from}->${to}`);
+      return undefined as any;
+    };
+    (originalFs as any).unlink = async (path: string) => {
+      calls.push(`unlink:${path}`);
+      return true as any;
+    };
+
+    try {
+      const storage = { version: 1, accounts: [__testExports.mergeAccount([], "tkn")[0]] };
+      await (__testExports.saveStorage as any)(storage);
+      // Expect write then rename called
+      const wrote = calls.some((c) => c.startsWith("write:"));
+      const renamed = calls.some((c) => c.startsWith("rename:"));
+      expect(wrote).toBe(true);
+      expect(renamed).toBe(true);
+    } finally {
+      (originalFs as any).mkdir = origMkdir;
+      (originalFs as any).writeFile = origWrite;
+      (originalFs as any).rename = origRename;
+      (originalFs as any).unlink = origUnlink;
+      invalidateStorageCache();
+    }
+  });
+
+  it("saveStorage cleans up temp file when rename fails (best-effort cleanup)", async () => {
+    const originalFs = __testExports.__fs;
+    let tempPathCaptured = "";
+    let unlinkCalledWith = "";
+    const origMkdir = originalFs.mkdir;
+    const origWrite = originalFs.writeFile;
+    const origRename = originalFs.rename;
+    const origUnlink = originalFs.unlink;
+
+    (originalFs as any).mkdir = async () => undefined as any;
+    (originalFs as any).writeFile = async (path: string, contents: string) => {
+      tempPathCaptured = path;
+      return undefined as any;
+    };
+    (originalFs as any).rename = async (_from: string, _to: string) => {
+      throw new Error("rename failed");
+    };
+    (originalFs as any).unlink = async (path: string) => {
+      unlinkCalledWith = path;
+      return true as any;
+    };
+
+    try {
+      const storage = { version: 1, accounts: [__testExports.mergeAccount([], "tkn")[0]] };
+      await expect((__testExports.saveStorage as any)(storage)).rejects.toThrow();
+      expect(tempPathCaptured).toBeTruthy();
+      expect(unlinkCalledWith).toBe(tempPathCaptured);
+    } finally {
+      (originalFs as any).mkdir = origMkdir;
+      (originalFs as any).writeFile = origWrite;
+      (originalFs as any).rename = origRename;
+      (originalFs as any).unlink = origUnlink;
+      invalidateStorageCache();
+    }
+  });
 });
