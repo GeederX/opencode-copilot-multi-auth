@@ -225,6 +225,28 @@ COPILOT_MULTI_AUTH_LOG_LEVEL=info
 
 Supported levels: `info`, `warn`, `error`.
 
+Structured logs and metrics
+
+- Enable structured JSON logs (newline-delimited JSON) by setting:
+
+```bash
+COPILOT_MULTI_AUTH_STRUCTURED_LOGS=json
+```
+
+- Basic in-memory metrics are available for inspection in tests via exported helpers (no secrets exposed):
+
+  - __metrics_get() -> snapshot of current counters
+  - __metrics_reset() -> reset counters (test-only)
+
+Metrics tracked:
+
+- attemptsByAccount: number of request attempts per account id
+- successesByAccount: successful responses per account id
+- failuresByType: counters for 429, 403, other
+- refresh: { success, fail }
+
+These metrics are intentionally in-memory and ephemeral; they are intended for debugging and tests only.
+
 ## Notes
 
 - Provider ID is `github-copilot`, so this plugin overrides built-in Copilot auth behavior when installed.

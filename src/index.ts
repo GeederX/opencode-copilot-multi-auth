@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile, rename, unlink } from "node:fs/promises";
-import { chmod } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rename, unlink, chmod } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -52,13 +51,67 @@ const ACTIVE_LOG_LEVEL: LogLevel = LOG_LEVEL_PRIORITY[CONFIGURED_LOG_LEVEL]
 const cooldownUntilByAccount = new Map<string, number>();
 const usageCountByAccount = new Map<string, number>();
 const unsupportedModelsByAccount = new Map<string, Set<string>>();
+// Observability metrics (in-memory)
+const metrics = {
+  attemptsByAccount: new Map<string, number>(),
+  successesByAccount: new Map<string, number>(),
+  failuresByType: { "429": 0, "403": 0, other: 0 } as Record<string, number>,
+  refresh: { success: 0, fail: 0 },
+};
+
+const STRUCTURED_LOGS = (process.env.COPILOT_MULTI_AUTH_STRUCTURED_LOGS || "").toLowerCase() === "1" || (process.env.COPILOT_MULTI_AUTH_STRUCTURED_LOGS || "").toLowerCase() === "json";
 
 // Simple logger
 function log(message: string, level: LogLevel = "info"): void {
   if (LOG_LEVEL_PRIORITY[level] < LOG_LEVEL_PRIORITY[ACTIVE_LOG_LEVEL]) return;
   const timestamp = new Date().toISOString();
+  if (STRUCTURED_LOGS) {
+    // Emit a compact JSON line to stderr for structured logging
+    try {
+      const out = JSON.stringify({ ts: timestamp, service: "copilot-multi-auth", level, message });
+      console.error(out);
+      return;
+    } catch {
+      // fallback to legacy format
+    }
+  }
+
   const prefix = `[${timestamp}] [copilot-multi-auth] [${level.toUpperCase()}]`;
   console.error(`${prefix} ${message}`); // Use stderr for logs
+}
+
+// Metrics helpers
+function recordAttempt(accountId: string | undefined) {
+  if (!accountId) return;
+  metrics.attemptsByAccount.set(accountId, (metrics.attemptsByAccount.get(accountId) || 0) + 1);
+}
+
+function recordSuccess(accountId: string | undefined) {
+  if (!accountId) return;
+  metrics.successesByAccount.set(accountId, (metrics.successesByAccount.get(accountId) || 0) + 1);
+}
+
+function recordFailure(status: number) {
+  if (status === 429) metrics.failuresByType["429"] += 1;
+  else if (status === 403) metrics.failuresByType["403"] += 1;
+  else metrics.failuresByType.other += 1;
+}
+
+function recordRefreshSuccess() {
+  metrics.refresh.success += 1;
+}
+
+function recordRefreshFail() {
+  metrics.refresh.fail += 1;
+}
+
+function getMetricsSnapshot() {
+  return {
+    attemptsByAccount: Object.fromEntries(metrics.attemptsByAccount.entries()),
+    successesByAccount: Object.fromEntries(metrics.successesByAccount.entries()),
+    failuresByType: { ...metrics.failuresByType },
+    refresh: { ...metrics.refresh },
+  };
 }
 
 function normalizeDomain(url: string) {
@@ -296,6 +349,16 @@ export function invalidateStorageCache() {
   storageCache = null;
 }
 
+// Wrap fs/promises functions so tests can replace them when needed without complex module mocking.
+export const __fs = {
+  mkdir,
+  readFile,
+  writeFile,
+  rename,
+  unlink,
+  chmod,
+};
+
 async function loadStorage(): Promise<StorageShape> {
   // Return cached value when available and fresh
   if (storageCache && Date.now() - storageCache.loadedAt < STORAGE_CACHE_TTL_MS) {
@@ -303,7 +366,7 @@ async function loadStorage(): Promise<StorageShape> {
   }
 
   const filePath = getStorageFilePath();
-  const raw = await readFile(filePath, "utf8").catch(() => "");
+  const raw = await __fs.readFile(filePath, "utf8").catch(() => "");
   const parsed = raw ? normalizeStorage(parseJson<unknown>(raw)) : { version: 1, accounts: [] };
 
   storageCache = { value: parsed, loadedAt: Date.now() };
@@ -313,18 +376,18 @@ async function loadStorage(): Promise<StorageShape> {
 // Atomic save: write to temp file in same dir then rename to final path.
 async function saveStorage(storage: StorageShape): Promise<void> {
   const filePath = getStorageFilePath();
-  await mkdir(dirname(filePath), { recursive: true });
+  await __fs.mkdir(dirname(filePath), { recursive: true });
 
   const tempPath = `${filePath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const contents = JSON.stringify(storage, null, 2);
 
   try {
-    await writeFile(tempPath, contents, "utf8");
-    await rename(tempPath, filePath);
+    await __fs.writeFile(tempPath, contents, "utf8");
+    await __fs.rename(tempPath, filePath);
   } catch (err) {
     // Best-effort cleanup of temp file
     try {
-      await unlink(tempPath).catch(() => undefined);
+      await __fs.unlink(tempPath).catch(() => undefined);
     } catch {}
     throw err;
   } finally {
@@ -435,15 +498,22 @@ async function upsertOAuthToken(refreshToken: string): Promise<void> {
     throw e;
   }
 
-  try {
-    // If the refresh token is stored as placeholder, try reading from keychain
-    let refreshToUse = account.refreshToken;
-    if (refreshToUse === "[KEYCHAIN]") {
-      const fromKeychain = await keychainGet(account.id).catch(() => null);
-      if (fromKeychain) refreshToUse = fromKeychain;
-    }
+    try {
+      // If the refresh token is stored as placeholder, try reading from keychain
+      let refreshToUse = account.refreshToken;
+      if (refreshToUse === "[KEYCHAIN]") {
+        const fromKeychain = await keychainGet(account.id).catch(() => null);
+        if (fromKeychain) refreshToUse = fromKeychain;
+      }
 
-    const result = await refreshAccessToken(refreshToUse);
+    let result;
+    try {
+      result = await refreshAccessToken(refreshToUse);
+      recordRefreshSuccess();
+    } catch (err) {
+      recordRefreshFail();
+      throw err;
+    }
 
     // Persist new access token and expiry
     const storage = await loadStorage();
@@ -819,7 +889,9 @@ export const CopilotMultiAuthPlugin: Plugin = async (_input: PluginInput): Promi
             const maxAttempts = Math.max(1, Math.min(DEFAULT_MAX_ATTEMPTS, accounts.length));
 
             let lastResponse: Response | undefined;
-            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+              // record attempt metric
+              recordAttempt(selected?.id);
               const selected = pickAccount(accounts, modelID, excluded);
               if (!selected) {
                 log(`No available accounts after ${attempt} attempts`, "warn");
@@ -839,27 +911,29 @@ export const CopilotMultiAuthPlugin: Plugin = async (_input: PluginInput): Promi
               if (isVision) headers.set("Copilot-Vision-Request", "true");
 
               log(`Attempt ${attempt + 1}/${maxAttempts}: Using account ${selected.name}`);
-              const response = await fetch(replayable.url, {
-                ...replayable.init,
-                headers,
-              });
+               const response = await fetch(replayable.url, {
+                 ...replayable.init,
+                 headers,
+               });
 
-              const modelUnavailable = await isModelUnavailableError(response);
-              if (modelUnavailable) {
-                log(`Model ${modelID} not available for account ${selected.name}, trying next account`, "warn");
-                markModelUnsupportedForAccount(modelID, selected.id);
-                excluded.add(selected.id);
-                lastResponse = response;
-                continue;
-              }
+               const modelUnavailable = await isModelUnavailableError(response);
+               if (modelUnavailable) {
+                 log(`Model ${modelID} not available for account ${selected.name}, trying next account`, "warn");
+                 markModelUnsupportedForAccount(modelID, selected.id);
+                 excluded.add(selected.id);
+                 lastResponse = response;
+                 continue;
+               }
 
-              const quotaLimited = await isQuotaOrRateLimit(response);
-              if (!quotaLimited) {
+               const quotaLimited = await isQuotaOrRateLimit(response);
+               if (!quotaLimited) {
                 usageCountByAccount.set(selected.id, (usageCountByAccount.get(selected.id) || 0) + 1);
+                recordSuccess(selected.id);
                 log(`Success: Request completed (status=${response.status})`);
                 return response;
               }
 
+              recordFailure(response.status);
               log(`Quota/rate-limit hit for account ${selected.name} (status=${response.status}), trying next account`, "warn");
               lastResponse = response;
               excluded.add(selected.id);
@@ -965,6 +1039,18 @@ export const __testExports = {
   keychainSet,
   keychainGet,
   log,
+  // Test-only helpers
+  __fs,
+  loadStorage,
+  saveStorage,
+  // Observability exports for tests/debug (no secrets)
+  __metrics_get: getMetricsSnapshot,
+  __metrics_reset: () => {
+    metrics.attemptsByAccount.clear();
+    metrics.successesByAccount.clear();
+    metrics.failuresByType = { "429": 0, "403": 0, other: 0 };
+    metrics.refresh = { success: 0, fail: 0 };
+  },
 };
 
 export default CopilotMultiAuthPlugin;
