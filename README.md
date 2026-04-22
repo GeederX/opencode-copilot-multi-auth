@@ -24,21 +24,23 @@ This is not only manual priority ordering. It is automatic account-pool rotation
 
 ## Install
 
-### Option A: npm
-
 ```bash
-npm install -g @ojpalenzuela/opencode-copilot-multi-auth@0.3.0
+npm install -g @ojpalenzuela/opencode-copilot-multi-auth@0.1.1
 ```
 
 Add to `opencode.json`:
 
 ```json
 {
-  "plugin": ["@ojpalenzuela/opencode-copilot-multi-auth@0.3.0"]
+  "plugin": ["@ojpalenzuela/opencode-copilot-multi-auth@0.1.1"]
 }
 ```
 
-### Option B: local plugin folder
+### Option C: via opencode plugin install (recommended)
+
+```bash
+opencode plugin install @ojpalenzuela/opencode-copilot-multi-auth@0.1.1
+```
 
 ```json
 {
@@ -251,7 +253,7 @@ These metrics are intentionally in-memory and ephemeral; they are intended for d
 
 ## Notes
 
-- Provider ID is `github-copilot`, so this plugin overrides built-in Copilot auth behavior when installed.
+- **Provider ID**: `github-copilot-multi` (overrides the built-in `github-copilot`)
 - Cooldown after quota hit uses `Retry-After` when present, otherwise defaults to 90 seconds.
 - Maximum retry attempts are bounded by account count and internal cap.
 - Maximum retry attempts are bounded by account count and internal cap.

@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile, rename, unlink, chmod } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  writeFile,
+  rename,
+  unlink,
+  chmod,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -31,7 +38,7 @@ type RuntimeAccount = StoredAccount;
 
 const CLIENT_ID = "Ov23li8tweQw6odWQebz";
 const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000;
-const USER_AGENT = "opencode-copilot-multi-auth/0.3.0";
+const USER_AGENT = "opencode-copilot-multi-auth/0.1.1";
 const DEFAULT_COOLDOWN_SECONDS = 90;
 const DEFAULT_MAX_ATTEMPTS = 10;
 const TOKEN_REFRESH_MARGIN_SECONDS = 60; // Refresh token 1 minute before expiry
@@ -43,7 +50,10 @@ const LOG_LEVEL_PRIORITY = {
 } as const;
 type LogLevel = keyof typeof LOG_LEVEL_PRIORITY;
 const DEFAULT_LOG_LEVEL: LogLevel = "warn";
-const CONFIGURED_LOG_LEVEL = ((process.env.COPILOT_MULTI_AUTH_LOG_LEVEL || "").toLowerCase() as LogLevel) || DEFAULT_LOG_LEVEL;
+const CONFIGURED_LOG_LEVEL =
+  ((
+    process.env.COPILOT_MULTI_AUTH_LOG_LEVEL || ""
+  ).toLowerCase() as LogLevel) || DEFAULT_LOG_LEVEL;
 const ACTIVE_LOG_LEVEL: LogLevel = LOG_LEVEL_PRIORITY[CONFIGURED_LOG_LEVEL]
   ? CONFIGURED_LOG_LEVEL
   : DEFAULT_LOG_LEVEL;
@@ -59,7 +69,11 @@ const metrics = {
   refresh: { success: 0, fail: 0 },
 };
 
-const STRUCTURED_LOGS = (process.env.COPILOT_MULTI_AUTH_STRUCTURED_LOGS || "").toLowerCase() === "1" || (process.env.COPILOT_MULTI_AUTH_STRUCTURED_LOGS || "").toLowerCase() === "json";
+const STRUCTURED_LOGS =
+  (process.env.COPILOT_MULTI_AUTH_STRUCTURED_LOGS || "").toLowerCase() ===
+    "1" ||
+  (process.env.COPILOT_MULTI_AUTH_STRUCTURED_LOGS || "").toLowerCase() ===
+    "json";
 
 // Simple logger
 function log(message: string, level: LogLevel = "info"): void {
@@ -68,7 +82,12 @@ function log(message: string, level: LogLevel = "info"): void {
   if (STRUCTURED_LOGS) {
     // Emit a compact JSON line to stderr for structured logging
     try {
-      const out = JSON.stringify({ ts: timestamp, service: "copilot-multi-auth", level, message });
+      const out = JSON.stringify({
+        ts: timestamp,
+        service: "copilot-multi-auth",
+        level,
+        message,
+      });
       console.error(out);
       return;
     } catch {
@@ -83,12 +102,18 @@ function log(message: string, level: LogLevel = "info"): void {
 // Metrics helpers
 function recordAttempt(accountId: string | undefined) {
   if (!accountId) return;
-  metrics.attemptsByAccount.set(accountId, (metrics.attemptsByAccount.get(accountId) || 0) + 1);
+  metrics.attemptsByAccount.set(
+    accountId,
+    (metrics.attemptsByAccount.get(accountId) || 0) + 1,
+  );
 }
 
 function recordSuccess(accountId: string | undefined) {
   if (!accountId) return;
-  metrics.successesByAccount.set(accountId, (metrics.successesByAccount.get(accountId) || 0) + 1);
+  metrics.successesByAccount.set(
+    accountId,
+    (metrics.successesByAccount.get(accountId) || 0) + 1,
+  );
 }
 
 function recordFailure(status: number) {
@@ -108,7 +133,9 @@ function recordRefreshFail() {
 function getMetricsSnapshot() {
   return {
     attemptsByAccount: Object.fromEntries(metrics.attemptsByAccount.entries()),
-    successesByAccount: Object.fromEntries(metrics.successesByAccount.entries()),
+    successesByAccount: Object.fromEntries(
+      metrics.successesByAccount.entries(),
+    ),
     failuresByType: { ...metrics.failuresByType },
     refresh: { ...metrics.refresh },
   };
@@ -140,7 +167,10 @@ function getOpencodeConfigDirectory() {
 }
 
 function getStorageFilePath() {
-  return join(getOpencodeConfigDirectory(), "opencode-copilot-multi-auth-accounts.json");
+  return join(
+    getOpencodeConfigDirectory(),
+    "opencode-copilot-multi-auth-accounts.json",
+  );
 }
 
 function parseJson<T>(value: string): T | undefined {
@@ -161,7 +191,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function toStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  const result = value.filter((item): item is string => typeof item === "string");
+  const result = value.filter(
+    (item): item is string => typeof item === "string",
+  );
   return result.length > 0 ? result : undefined;
 }
 
@@ -176,18 +208,38 @@ function normalizeModelRule(raw: unknown): ModelRule {
 function normalizeStoredAccount(raw: unknown): StoredAccount | undefined {
   if (!isRecord(raw)) return undefined;
   // Accept either new refreshToken or legacy token field
-  const refreshToken = typeof raw.refreshToken === "string" ? raw.refreshToken.trim() : 
-                       typeof raw.token === "string" ? raw.token.trim() : "";
+  const refreshToken =
+    typeof raw.refreshToken === "string"
+      ? raw.refreshToken.trim()
+      : typeof raw.token === "string"
+        ? raw.token.trim()
+        : "";
   if (!refreshToken) return undefined;
 
-  const id = typeof raw.id === "string" && raw.id.trim() ? raw.id : shaTokenId(refreshToken);
-  const name = typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : `copilot-${id.slice(0, 6)}`;
-  const priority = typeof raw.priority === "number" && Number.isFinite(raw.priority) ? raw.priority : 100;
+  const id =
+    typeof raw.id === "string" && raw.id.trim()
+      ? raw.id
+      : shaTokenId(refreshToken);
+  const name =
+    typeof raw.name === "string" && raw.name.trim()
+      ? raw.name.trim()
+      : `copilot-${id.slice(0, 6)}`;
+  const priority =
+    typeof raw.priority === "number" && Number.isFinite(raw.priority)
+      ? raw.priority
+      : 100;
   const enabled = raw.enabled !== false;
-  const addedAt = typeof raw.addedAt === "number" && Number.isFinite(raw.addedAt) ? raw.addedAt : Date.now();
-  
-  const accessToken = typeof raw.accessToken === "string" ? raw.accessToken : undefined;
-  const accessTokenExpiresAt = typeof raw.accessTokenExpiresAt === "number" ? raw.accessTokenExpiresAt : undefined;
+  const addedAt =
+    typeof raw.addedAt === "number" && Number.isFinite(raw.addedAt)
+      ? raw.addedAt
+      : Date.now();
+
+  const accessToken =
+    typeof raw.accessToken === "string" ? raw.accessToken : undefined;
+  const accessTokenExpiresAt =
+    typeof raw.accessTokenExpiresAt === "number"
+      ? raw.accessTokenExpiresAt
+      : undefined;
 
   return {
     id,
@@ -235,15 +287,22 @@ async function initKeychain(): Promise<void> {
 
   if (process.env.COPILOT_FAKE_KEYCHAIN === "1") {
     // simple in-memory fake keychain for tests
-    if (!(globalThis as any).__fake_keychain_map) (globalThis as any).__fake_keychain_map = new Map<string, string>();
+    if (!(globalThis as any).__fake_keychain_map)
+      (globalThis as any).__fake_keychain_map = new Map<string, string>();
     keychainAvailableFlag = true;
     keytarModule = {
-      getPassword: async (_service: string, account: string) => (globalThis as any).__fake_keychain_map.get(account) ?? null,
-      setPassword: async (_service: string, account: string, password: string) => {
+      getPassword: async (_service: string, account: string) =>
+        (globalThis as any).__fake_keychain_map.get(account) ?? null,
+      setPassword: async (
+        _service: string,
+        account: string,
+        password: string,
+      ) => {
         (globalThis as any).__fake_keychain_map.set(account, password);
         return true;
       },
-      deletePassword: async (_service: string, account: string) => (globalThis as any).__fake_keychain_map.delete(account) ? true : false,
+      deletePassword: async (_service: string, account: string) =>
+        (globalThis as any).__fake_keychain_map.delete(account) ? true : false,
     };
     return;
   }
@@ -308,14 +367,19 @@ function mergeAccount(
   const providedID = normalizeAccountID(opts?.id);
   const id = providedID || tokenDerivedID;
   const existingIndex = accounts.findIndex(
-    (acc) => acc.id === id || acc.id === tokenDerivedID || acc.refreshToken === refreshToken,
+    (acc) =>
+      acc.id === id ||
+      acc.id === tokenDerivedID ||
+      acc.refreshToken === refreshToken,
   );
 
   const candidate: StoredAccount = {
     id,
     name: opts?.name?.trim() || `copilot-${id.slice(0, 6)}`,
     refreshToken,
-    priority: Number.isFinite(opts?.priority) ? (opts?.priority as number) : 100,
+    priority: Number.isFinite(opts?.priority)
+      ? (opts?.priority as number)
+      : 100,
     enabled: true,
     modelRule: {},
     addedAt: Date.now(),
@@ -343,7 +407,9 @@ function mergeAccount(
 
 // In-memory cache to avoid hot-path disk I/O. Lazy-loaded on first access.
 let storageCache: { value: StorageShape; loadedAt: number } | null = null;
-const STORAGE_CACHE_TTL_MS = Number(process.env.COPILOT_STORAGE_CACHE_TTL_MS || 5000);
+const STORAGE_CACHE_TTL_MS = Number(
+  process.env.COPILOT_STORAGE_CACHE_TTL_MS || 5000,
+);
 
 export function invalidateStorageCache() {
   storageCache = null;
@@ -361,14 +427,19 @@ export const __fs = {
 
 async function loadStorage(): Promise<StorageShape> {
   // Return cached value when available and fresh
-  if (storageCache && Date.now() - storageCache.loadedAt < STORAGE_CACHE_TTL_MS) {
+  if (
+    storageCache &&
+    Date.now() - storageCache.loadedAt < STORAGE_CACHE_TTL_MS
+  ) {
     return storageCache.value;
   }
 
   const filePath = getStorageFilePath();
   const raw = await __fs.readFile(filePath, "utf8").catch(() => "");
   // Ensure parsed always has the exact StorageShape type (avoid widening numeric literal and empty array types)
-  const parsed = raw ? normalizeStorage(parseJson<unknown>(raw)) : normalizeStorage(undefined);
+  const parsed = raw
+    ? normalizeStorage(parseJson<unknown>(raw))
+    : normalizeStorage(undefined);
 
   storageCache = { value: parsed, loadedAt: Date.now() };
   return parsed;
@@ -435,7 +506,7 @@ async function upsertOAuthToken(refreshToken: string): Promise<void> {
  * Get or refresh a valid OAuth access token for a Copilot account.
  * GitHub OAuth tokens are short-lived (1 hour), so we cache and refresh as needed.
  */
-  async function getValidAccessToken(account: StoredAccount): Promise<string> {
+async function getValidAccessToken(account: StoredAccount): Promise<string> {
   const now = Date.now() / 1000; // seconds
   const expiresAt = (account.accessTokenExpiresAt ?? 0) / 1000;
   const timeUntilExpiry = expiresAt - now;
@@ -445,11 +516,16 @@ async function upsertOAuthToken(refreshToken: string): Promise<void> {
     return account.accessToken;
   }
 
-  log(`No valid cached access token for account ${account.name} (${account.id}), attempting refresh`, "info");
+  log(
+    `No valid cached access token for account ${account.name} (${account.id}), attempting refresh`,
+    "info",
+  );
 
   // Attempt refresh flow using stored refresh token.
   // We expect the token endpoint to accept a refresh_token grant and return { access_token, expires_in }
-  async function refreshAccessToken(refreshToken: string): Promise<{ access: string; expiresIn: number }> {
+  async function refreshAccessToken(
+    refreshToken: string,
+  ): Promise<{ access: string; expiresIn: number }> {
     const urls = getUrls("github.com");
     try {
       const res = await fetch(urls.ACCESS_TOKEN_URL, {
@@ -466,7 +542,10 @@ async function upsertOAuthToken(refreshToken: string): Promise<void> {
         }),
       });
 
-      const body = await res.clone().json().catch(() => ({}));
+      const body = await res
+        .clone()
+        .json()
+        .catch(() => ({}));
 
       if (!res.ok) {
         // Distinguish invalid_grant (non-recoverable) vs transient errors
@@ -481,8 +560,10 @@ async function upsertOAuthToken(refreshToken: string): Promise<void> {
         throw e;
       }
 
-      const access = typeof body.access_token === "string" ? body.access_token : undefined;
-      const expiresIn = typeof body.expires_in === "number" ? body.expires_in : undefined;
+      const access =
+        typeof body.access_token === "string" ? body.access_token : undefined;
+      const expiresIn =
+        typeof body.expires_in === "number" ? body.expires_in : undefined;
 
       if (!access) {
         const e = new Error("token_refresh_no_access_token");
@@ -503,13 +584,13 @@ async function upsertOAuthToken(refreshToken: string): Promise<void> {
     throw e;
   }
 
-    try {
-      // If the refresh token is stored as placeholder, try reading from keychain
-      let refreshToUse = account.refreshToken;
-      if (refreshToUse === "[KEYCHAIN]") {
-        const fromKeychain = await keychainGet(account.id).catch(() => null);
-        if (fromKeychain) refreshToUse = fromKeychain;
-      }
+  try {
+    // If the refresh token is stored as placeholder, try reading from keychain
+    let refreshToUse = account.refreshToken;
+    if (refreshToUse === "[KEYCHAIN]") {
+      const fromKeychain = await keychainGet(account.id).catch(() => null);
+      if (fromKeychain) refreshToUse = fromKeychain;
+    }
 
     let result;
     try {
@@ -525,7 +606,8 @@ async function upsertOAuthToken(refreshToken: string): Promise<void> {
     const accountIndex = storage.accounts.findIndex((a) => a.id === account.id);
     if (accountIndex >= 0) {
       storage.accounts[accountIndex].accessToken = result.access;
-      storage.accounts[accountIndex].accessTokenExpiresAt = Date.now() + result.expiresIn * 1000;
+      storage.accounts[accountIndex].accessTokenExpiresAt =
+        Date.now() + result.expiresIn * 1000;
       await saveStorage(storage);
     }
 
@@ -533,7 +615,10 @@ async function upsertOAuthToken(refreshToken: string): Promise<void> {
   } catch (err: any) {
     // For invalid_grant or missing refresh token, surface explicit error so caller can force re-auth
     if (err && err.code === "invalid_grant") {
-      log(`Refresh failed with invalid_grant for account ${account.id}`, "error");
+      log(
+        `Refresh failed with invalid_grant for account ${account.id}`,
+        "error",
+      );
       const e = new Error("invalid_grant");
       (e as any).code = "invalid_grant";
       throw e;
@@ -548,25 +633,38 @@ async function upsertOAuthToken(refreshToken: string): Promise<void> {
   }
 }
 
-function modelAllowedByRule(modelID: string | undefined, rule: ModelRule): boolean {
+function modelAllowedByRule(
+  modelID: string | undefined,
+  rule: ModelRule,
+): boolean {
   if (!modelID) return true;
   const model = modelID.toLowerCase();
-  const allow = rule.allowlist?.some((item) => model.includes(item.toLowerCase()));
-  const block = rule.blocklist?.some((item) => model.includes(item.toLowerCase()));
+  const allow = rule.allowlist?.some((item) =>
+    model.includes(item.toLowerCase()),
+  );
+  const block = rule.blocklist?.some((item) =>
+    model.includes(item.toLowerCase()),
+  );
 
   if (block) return false;
   if (rule.allowlist && rule.allowlist.length > 0) return !!allow;
   return true;
 }
 
-function isModelUnsupportedForAccount(modelID: string | undefined, accountID: string): boolean {
+function isModelUnsupportedForAccount(
+  modelID: string | undefined,
+  accountID: string,
+): boolean {
   if (!modelID) return false;
   const models = unsupportedModelsByAccount.get(accountID);
   if (!models) return false;
   return models.has(modelID.toLowerCase());
 }
 
-function markModelUnsupportedForAccount(modelID: string | undefined, accountID: string): void {
+function markModelUnsupportedForAccount(
+  modelID: string | undefined,
+  accountID: string,
+): void {
   if (!modelID) return;
   const key = modelID.toLowerCase();
   const models = unsupportedModelsByAccount.get(accountID) ?? new Set<string>();
@@ -574,7 +672,11 @@ function markModelUnsupportedForAccount(modelID: string | undefined, accountID: 
   unsupportedModelsByAccount.set(accountID, models);
 }
 
-function pickAccount(accounts: RuntimeAccount[], modelID: string | undefined, excluded: Set<string>): RuntimeAccount | undefined {
+function pickAccount(
+  accounts: RuntimeAccount[],
+  modelID: string | undefined,
+  excluded: Set<string>,
+): RuntimeAccount | undefined {
   const now = Date.now();
   const candidates = accounts.filter((acc) => {
     if (!acc.enabled) {
@@ -611,13 +713,18 @@ function pickAccount(accounts: RuntimeAccount[], modelID: string | undefined, ex
   if (selected) {
     const usage = usageCountByAccount.get(selected.id) || 0;
     const modelInfo = modelID ? ` for model ${modelID}` : "";
-    log(`Selected account: ${selected.name} (priority=${selected.priority}, usage=${usage})${modelInfo}`);
+    log(
+      `Selected account: ${selected.name} (priority=${selected.priority}, usage=${usage})${modelInfo}`,
+    );
   }
 
   return selected;
 }
 
-function getRetryDelaySeconds(response: Response, fallbackSeconds: number): number {
+function getRetryDelaySeconds(
+  response: Response,
+  fallbackSeconds: number,
+): number {
   const retryAfter = response.headers.get("retry-after");
   if (!retryAfter) return fallbackSeconds;
 
@@ -631,7 +738,10 @@ async function isQuotaOrRateLimit(response: Response): Promise<boolean> {
   if (response.status >= 500) return false;
   if (response.status !== 403) return false;
 
-  const text = await response.clone().text().catch(() => "");
+  const text = await response
+    .clone()
+    .text()
+    .catch(() => "");
   const lower = text.toLowerCase();
   return (
     lower.includes("rate limit") ||
@@ -644,7 +754,10 @@ async function isQuotaOrRateLimit(response: Response): Promise<boolean> {
 async function isModelUnavailableError(response: Response): Promise<boolean> {
   if (![400, 403, 404].includes(response.status)) return false;
 
-  const text = await response.clone().text().catch(() => "");
+  const text = await response
+    .clone()
+    .text()
+    .catch(() => "");
   const lower = text.toLowerCase();
   const hasModelWord = lower.includes("model");
   if (!hasModelWord) return false;
@@ -671,7 +784,9 @@ async function prepareReplayableRequest(
 
     const method = init?.method ?? request.method;
     const shouldReadBody = method !== "GET" && method !== "HEAD";
-    let body: BodyInit | undefined = (init?.body ?? undefined) as BodyInit | undefined;
+    let body: BodyInit | undefined = (init?.body ?? undefined) as
+      | BodyInit
+      | undefined;
     if (init?.body === null) body = undefined;
     if (body === undefined && shouldReadBody) {
       body = await request.clone().text();
@@ -703,30 +818,42 @@ function detectModelFromRequestBody(init: RequestInit): string | undefined {
   if (!payload) return undefined;
 
   if (typeof payload.model === "string") return payload.model;
-  if (isRecord(payload.request) && typeof payload.request.model === "string") return payload.request.model;
+  if (isRecord(payload.request) && typeof payload.request.model === "string")
+    return payload.request.model;
   return undefined;
 }
 
-function detectInitiatorAndVision(url: string, bodyText: string | undefined): { isAgent: boolean; isVision: boolean } {
+function detectInitiatorAndVision(
+  url: string,
+  bodyText: string | undefined,
+): { isAgent: boolean; isVision: boolean } {
   if (!bodyText) return { isAgent: false, isVision: false };
   const body = parseJson<Record<string, unknown>>(bodyText);
   if (!body) return { isAgent: false, isVision: false };
 
   try {
     if (Array.isArray(body.messages) && url.includes("completions")) {
-      const last = body.messages[body.messages.length - 1] as Record<string, unknown> | undefined;
+      const last = body.messages[body.messages.length - 1] as
+        | Record<string, unknown>
+        | undefined;
       const isVision = body.messages.some((msg) => {
         if (!isRecord(msg) || !Array.isArray(msg.content)) return false;
-        return msg.content.some((part) => isRecord(part) && part.type === "image_url");
+        return msg.content.some(
+          (part) => isRecord(part) && part.type === "image_url",
+        );
       });
       return { isVision, isAgent: last?.role !== "user" };
     }
 
     if (Array.isArray(body.input)) {
-      const last = body.input[body.input.length - 1] as Record<string, unknown> | undefined;
+      const last = body.input[body.input.length - 1] as
+        | Record<string, unknown>
+        | undefined;
       const isVision = body.input.some((item) => {
         if (!isRecord(item) || !Array.isArray(item.content)) return false;
-        return item.content.some((part) => isRecord(part) && part.type === "input_image");
+        return item.content.some(
+          (part) => isRecord(part) && part.type === "input_image",
+        );
       });
       return { isVision, isAgent: last?.role !== "user" };
     }
@@ -737,9 +864,18 @@ function detectInitiatorAndVision(url: string, bodyText: string | undefined): { 
   return { isAgent: false, isVision: false };
 }
 
-export const CopilotMultiAuthPlugin: Plugin = async (_input: PluginInput): Promise<Hooks> => {
-  async function startDeviceOAuth(domain: string, isEnterprise: boolean, accountID?: string) {
-    log(`Starting OAuth device flow for ${isEnterprise ? `GitHub Enterprise (${domain})` : "GitHub.com"}`, "info");
+export const CopilotMultiAuthPlugin: Plugin = async (
+  _input: PluginInput,
+): Promise<Hooks> => {
+  async function startDeviceOAuth(
+    domain: string,
+    isEnterprise: boolean,
+    accountID?: string,
+  ) {
+    log(
+      `Starting OAuth device flow for ${isEnterprise ? `GitHub Enterprise (${domain})` : "GitHub.com"}`,
+      "info",
+    );
 
     const urls = getUrls(domain);
 
@@ -757,7 +893,10 @@ export const CopilotMultiAuthPlugin: Plugin = async (_input: PluginInput): Promi
     });
 
     if (!deviceResponse.ok) {
-      log(`Failed to initiate device authorization: ${deviceResponse.status} ${deviceResponse.statusText}`, "error");
+      log(
+        `Failed to initiate device authorization: ${deviceResponse.status} ${deviceResponse.statusText}`,
+        "error",
+      );
       throw new Error("Failed to initiate device authorization");
     }
 
@@ -797,26 +936,44 @@ export const CopilotMultiAuthPlugin: Plugin = async (_input: PluginInput): Promi
           };
 
           if (data.access_token) {
-            log(`OAuth authorization successful, storing refresh token`, "info");
+            log(
+              `OAuth authorization successful, storing refresh token`,
+              "info",
+            );
 
             try {
               // On new authorization, attempt to store secret in keychain first.
               const derivedId = shaTokenId(data.access_token);
-              const kcOk = await keychainSet(derivedId, data.access_token).catch(() => false);
+              const kcOk = await keychainSet(
+                derivedId,
+                data.access_token,
+              ).catch(() => false);
               const storage = await loadStorage();
-              storage.accounts = mergeAccount(storage.accounts, data.access_token, { id: accountID });
+              storage.accounts = mergeAccount(
+                storage.accounts,
+                data.access_token,
+                { id: accountID },
+              );
 
               if (kcOk) {
                 // Replace raw token with placeholder for security
                 storage.accounts = storage.accounts.map((acc) =>
-                  acc.id === derivedId ? { ...acc, refreshToken: "[KEYCHAIN]" } : acc,
+                  acc.id === derivedId
+                    ? { ...acc, refreshToken: "[KEYCHAIN]" }
+                    : acc,
                 );
               }
 
               await saveStorage(storage);
-              log(`Successfully saved account to local storage (${storage.accounts.length} total accounts)`, "info");
+              log(
+                `Successfully saved account to local storage (${storage.accounts.length} total accounts)`,
+                "info",
+              );
             } catch (err) {
-              log(`Failed to save account to local storage: ${err instanceof Error ? err.message : String(err)}`, "error");
+              log(
+                `Failed to save account to local storage: ${err instanceof Error ? err.message : String(err)}`,
+                "error",
+              );
             }
 
             const result: {
@@ -840,14 +997,18 @@ export const CopilotMultiAuthPlugin: Plugin = async (_input: PluginInput): Promi
           }
 
           if (data.error === "authorization_pending") {
-            await sleep(deviceData.interval * 1000 + OAUTH_POLLING_SAFETY_MARGIN_MS);
+            await sleep(
+              deviceData.interval * 1000 + OAUTH_POLLING_SAFETY_MARGIN_MS,
+            );
             continue;
           }
 
           if (data.error === "slow_down") {
             const serverInterval = data.interval;
             const interval =
-              serverInterval && Number.isFinite(serverInterval) && serverInterval > 0
+              serverInterval &&
+              Number.isFinite(serverInterval) &&
+              serverInterval > 0
                 ? serverInterval
                 : deviceData.interval + 5;
             await sleep(interval * 1000 + OAUTH_POLLING_SAFETY_MARGIN_MS);
@@ -862,36 +1023,53 @@ export const CopilotMultiAuthPlugin: Plugin = async (_input: PluginInput): Promi
 
   return {
     auth: {
-      provider: "github-copilot",
+      provider: "github-copilot-multi",
       async loader(getAuth) {
         const info = await getAuth();
         if (!info || info.type !== "oauth") return {};
 
-        const enterpriseUrl = (info as { enterpriseUrl?: string }).enterpriseUrl;
-        const baseURL = enterpriseUrl ? `https://copilot-api.${normalizeDomain(enterpriseUrl)}` : undefined;
+        const enterpriseUrl = (info as { enterpriseUrl?: string })
+          .enterpriseUrl;
+        const baseURL = enterpriseUrl
+          ? `https://copilot-api.${normalizeDomain(enterpriseUrl)}`
+          : undefined;
 
         return {
           baseURL,
           apiKey: "",
           async fetch(request: RequestInfo | URL, init?: RequestInit) {
             const storage = await loadStorage();
-            const accounts = storage.accounts.filter((acc) => !!acc.refreshToken && acc.enabled !== false);
+            const accounts = storage.accounts.filter(
+              (acc) => !!acc.refreshToken && acc.enabled !== false,
+            );
             if (!accounts.length) {
-              log("No enabled OAuth Copilot accounts found. Please run auth login first.", "error");
-              throw new Error("No OAuth Copilot accounts found. Please run auth login first.");
+              log(
+                "No enabled OAuth Copilot accounts found. Please run auth login first.",
+                "error",
+              );
+              throw new Error(
+                "No OAuth Copilot accounts found. Please run auth login first.",
+              );
             }
 
             const replayable = await prepareReplayableRequest(request, init);
             const modelID = detectModelFromRequestBody(replayable.init);
             const { isAgent, isVision } = detectInitiatorAndVision(
               replayable.url,
-              typeof replayable.init.body === "string" ? replayable.init.body : undefined,
+              typeof replayable.init.body === "string"
+                ? replayable.init.body
+                : undefined,
             );
 
-            log(`Request: ${replayable.url} (model=${modelID}, agent=${isAgent}, vision=${isVision})`);
+            log(
+              `Request: ${replayable.url} (model=${modelID}, agent=${isAgent}, vision=${isVision})`,
+            );
 
             const excluded = new Set<string>();
-            const maxAttempts = Math.max(1, Math.min(DEFAULT_MAX_ATTEMPTS, accounts.length));
+            const maxAttempts = Math.max(
+              1,
+              Math.min(DEFAULT_MAX_ATTEMPTS, accounts.length),
+            );
 
             let lastResponse: Response | undefined;
             for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -915,45 +1093,70 @@ export const CopilotMultiAuthPlugin: Plugin = async (_input: PluginInput): Promi
 
               if (isVision) headers.set("Copilot-Vision-Request", "true");
 
-              log(`Attempt ${attempt + 1}/${maxAttempts}: Using account ${selected.name}`);
-               const response = await fetch(replayable.url, {
-                 ...replayable.init,
-                 headers,
-               });
+              log(
+                `Attempt ${attempt + 1}/${maxAttempts}: Using account ${selected.name}`,
+              );
+              const response = await fetch(replayable.url, {
+                ...replayable.init,
+                headers,
+              });
 
-               const modelUnavailable = await isModelUnavailableError(response);
-               if (modelUnavailable) {
-                 log(`Model ${modelID} not available for account ${selected.name}, trying next account`, "warn");
-                 markModelUnsupportedForAccount(modelID, selected.id);
-                 excluded.add(selected.id);
-                 lastResponse = response;
-                 continue;
-               }
+              const modelUnavailable = await isModelUnavailableError(response);
+              if (modelUnavailable) {
+                log(
+                  `Model ${modelID} not available for account ${selected.name}, trying next account`,
+                  "warn",
+                );
+                markModelUnsupportedForAccount(modelID, selected.id);
+                excluded.add(selected.id);
+                lastResponse = response;
+                continue;
+              }
 
-               const quotaLimited = await isQuotaOrRateLimit(response);
-               if (!quotaLimited) {
-                usageCountByAccount.set(selected.id, (usageCountByAccount.get(selected.id) || 0) + 1);
+              const quotaLimited = await isQuotaOrRateLimit(response);
+              if (!quotaLimited) {
+                usageCountByAccount.set(
+                  selected.id,
+                  (usageCountByAccount.get(selected.id) || 0) + 1,
+                );
                 recordSuccess(selected.id);
                 log(`Success: Request completed (status=${response.status})`);
                 return response;
               }
 
               recordFailure(response.status);
-              log(`Quota/rate-limit hit for account ${selected.name} (status=${response.status}), trying next account`, "warn");
+              log(
+                `Quota/rate-limit hit for account ${selected.name} (status=${response.status}), trying next account`,
+                "warn",
+              );
               lastResponse = response;
               excluded.add(selected.id);
 
-              const retrySec = getRetryDelaySeconds(response, DEFAULT_COOLDOWN_SECONDS);
-              cooldownUntilByAccount.set(selected.id, Date.now() + retrySec * 1000);
+              const retrySec = getRetryDelaySeconds(
+                response,
+                DEFAULT_COOLDOWN_SECONDS,
+              );
+              cooldownUntilByAccount.set(
+                selected.id,
+                Date.now() + retrySec * 1000,
+              );
               log(`Account ${selected.name} in cooldown for ${retrySec}s`);
             }
 
             if (lastResponse) {
-              log(`All accounts exhausted, returning last response (status=${lastResponse.status})`, "warn");
+              log(
+                `All accounts exhausted, returning last response (status=${lastResponse.status})`,
+                "warn",
+              );
               return lastResponse;
             }
-            log("All Copilot accounts are unavailable for this request.", "error");
-            throw new Error("All Copilot accounts are unavailable for this request.");
+            log(
+              "All Copilot accounts are unavailable for this request.",
+              "error",
+            );
+            throw new Error(
+              "All Copilot accounts are unavailable for this request.",
+            );
           },
         };
       },
@@ -1006,8 +1209,11 @@ export const CopilotMultiAuthPlugin: Plugin = async (_input: PluginInput): Promi
               validate: (value: string) => {
                 if (!value || !value.trim()) return "URL or domain is required";
                 try {
-                  const url = value.includes("://") ? new URL(value) : new URL(`https://${value}`);
-                  if (!url.hostname) return "Please enter a valid URL or domain";
+                  const url = value.includes("://")
+                    ? new URL(value)
+                    : new URL(`https://${value}`);
+                  if (!url.hostname)
+                    return "Please enter a valid URL or domain";
                   return undefined;
                 } catch {
                   return "Please enter a valid URL (e.g., company.ghe.com or https://company.ghe.com)";
