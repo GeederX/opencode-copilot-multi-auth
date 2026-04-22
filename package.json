@@ -1,6 +1,6 @@
 {
-  "name": "@geeder/opencode-copilot-multi-auth",
-  "version": "0.3.0",
+  "name": "@ojpalenzuela/opencode-copilot-multi-auth",
+  "version": "0.1.0",
   "description": "OpenCode plugin for GitHub Copilot multi-account management with automatic quota-aware failover and model-aware routing",
   "type": "module",
   "main": "./dist/index.js",
@@ -29,11 +29,11 @@
   "author": "OpenCode Contributors",
   "repository": {
     "type": "git",
-    "url": "https://github.com/GeederX/opencode-copilot-multi-auth.git"
+    "url": "https://github.com/ojpalenzuela/opencode-copilot-multi-auth.git"
   },
-  "homepage": "https://github.com/GeederX/opencode-copilot-multi-auth#readme",
+  "homepage": "https://github.com/ojpalenzuela/opencode-copilot-multi-auth#readme",
   "bugs": {
-    "url": "https://github.com/GeederX/opencode-copilot-multi-auth/issues"
+    "url": "https://github.com/ojpalenzuela/opencode-copilot-multi-auth/issues"
   },
   "engines": {
     "node": ">=20"
