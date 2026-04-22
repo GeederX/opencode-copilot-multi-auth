@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import config from "../vitest.config";
+// vitest.config.ts is ESM and outside the src root. Import its runtime shape only when running tests.
+// Use dynamic require to avoid TypeScript resolving it during build.
+const config: any = (() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require("../vitest.config");
+  } catch {
+    return undefined;
+  }
+})();
 
 describe("coverage configuration", () => {
   it("defines conservative global coverage thresholds", () => {

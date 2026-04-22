@@ -367,7 +367,8 @@ async function loadStorage(): Promise<StorageShape> {
 
   const filePath = getStorageFilePath();
   const raw = await __fs.readFile(filePath, "utf8").catch(() => "");
-  const parsed = raw ? normalizeStorage(parseJson<unknown>(raw)) : { version: 1, accounts: [] };
+  // Ensure parsed always has the exact StorageShape type (avoid widening numeric literal and empty array types)
+  const parsed = raw ? normalizeStorage(parseJson<unknown>(raw)) : normalizeStorage(undefined);
 
   storageCache = { value: parsed, loadedAt: Date.now() };
   return parsed;
