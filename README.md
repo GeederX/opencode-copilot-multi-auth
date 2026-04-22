@@ -27,14 +27,14 @@ This is not only manual priority ordering. It is automatic account-pool rotation
 ### Option A: npm
 
 ```bash
-npm install -g @geeder/opencode-copilot-multi-auth@0.3.0
+npm install -g @ojpalenzuela/opencode-copilot-multi-auth@0.3.0
 ```
 
 Add to `opencode.json`:
 
 ```json
 {
-  "plugin": ["@geeder/opencode-copilot-multi-auth@0.3.0"]
+  "plugin": ["@ojpalenzuela/opencode-copilot-multi-auth@0.3.0"]
 }
 ```
 
@@ -42,7 +42,9 @@ Add to `opencode.json`:
 
 ```json
 {
-  "plugin": ["file:///C:/Users/<you>/.config/opencode/plugins/opencode-copilot-multi-auth-local"]
+  "plugin": [
+    "file:///C:/Users/<you>/.config/opencode/plugins/opencode-copilot-multi-auth-local"
+  ]
 }
 ```
 
@@ -198,6 +200,7 @@ When a model request comes in, the plugin skips any account whose model rules do
 ```
 
 In this setup:
+
 - `gpt-4o` request → tries `work-gpt4` (allowed) → falls back to `personal-all` or `test-no-o1`
 - `o1` request → skips `work-gpt4` and `test-no-o1` → only uses `personal-all`
 - `gpt-3.5-turbo` request → skips `work-gpt4` → uses `personal-all` or `test-no-o1`
@@ -234,9 +237,8 @@ COPILOT_MULTI_AUTH_STRUCTURED_LOGS=json
 ```
 
 - Basic in-memory metrics are available for inspection in tests via exported helpers (no secrets exposed):
-
-  - __metrics_get() -> snapshot of current counters
-  - __metrics_reset() -> reset counters (test-only)
+  - \_\_metrics_get() -> snapshot of current counters
+  - \_\_metrics_reset() -> reset counters (test-only)
 
 Metrics tracked:
 
@@ -252,7 +254,7 @@ These metrics are intentionally in-memory and ephemeral; they are intended for d
 - Provider ID is `github-copilot`, so this plugin overrides built-in Copilot auth behavior when installed.
 - Cooldown after quota hit uses `Retry-After` when present, otherwise defaults to 90 seconds.
 - Maximum retry attempts are bounded by account count and internal cap.
- - Maximum retry attempts are bounded by account count and internal cap.
+- Maximum retry attempts are bounded by account count and internal cap.
 
 ## Security behavior (keychain vs fallback)
 
@@ -265,51 +267,58 @@ Fallback file storage: when OS keychain is not available or writing to it fails,
 - Filesystem-based storage is less secure than an OS keychain. If an attacker gains local access to your account or a backup containing this file, refresh tokens may be exfiltrated.
 
 Operational model summary:
+
 - Preferred path: keychain available -> refresh token stored in OS keychain, JSON uses `[KEYCHAIN]` placeholder.
 - Fallback path: keychain unavailable/fails -> token stored in JSON with atomic writes and permission hardening best-effort.
 
 Migration: On login or when reading an account whose `refreshToken` equals the placeholder `[KEYCHAIN]`, the plugin will attempt to read the real token from the OS keychain and use it for refresh operations. When possible, new tokens are moved into the keychain and the JSON is sanitized to avoid plaintext secrets.
 
 Environment variables for testing and behavior:
+
 - `COPILOT_FORCE_NO_KEYCHAIN=1` — force-disable keychain usage (useful in CI)
 - `COPILOT_FAKE_KEYCHAIN=1` — use an in-memory fake keychain for tests
 
-Optional OS keychain dependency (keytar)
----------------------------------------
+## Optional OS keychain dependency (keytar)
 
 This plugin will try to use the optional native module `keytar` to store refresh tokens in the
 operating system credential store (macOS Keychain, Windows Credential Manager, libsecret on Linux).
 
 When to install
-  - Operators who run this plugin on developer machines or servers with a secure OS keyring
-    should install `keytar` to improve security and keep refresh tokens out of local files.
+
+- Operators who run this plugin on developer machines or servers with a secure OS keyring
+  should install `keytar` to improve security and keep refresh tokens out of local files.
 
 How to install
-  - Globally via npm: `npm install -g keytar`
-  - Locally in your environment: `npm i --no-save keytar`
+
+- Globally via npm: `npm install -g keytar`
+- Locally in your environment: `npm i --no-save keytar`
 
 Behavior when keytar is missing
- - The plugin does a dynamic import of `keytar`. If it is not installed or fails to load,
-   the plugin falls back to storing refresh tokens in the JSON config file under your
-   config directory. The file storage is written atomically and the plugin attempts to set
-   restrictive directory permissions (700), but filesystem-based storage is less secure.
+
+- The plugin does a dynamic import of `keytar`. If it is not installed or fails to load,
+  the plugin falls back to storing refresh tokens in the JSON config file under your
+  config directory. The file storage is written atomically and the plugin attempts to set
+  restrictive directory permissions (700), but filesystem-based storage is less secure.
 
 CI and testing
- - In CI environments you may prefer NOT to install native modules. Use `COPILOT_FORCE_NO_KEYCHAIN=1`
-   to force the plugin to skip keychain attempts. Tests may set `COPILOT_FAKE_KEYCHAIN=1` to use an
-   in-memory fake keychain for deterministic behavior.
+
+- In CI environments you may prefer NOT to install native modules. Use `COPILOT_FORCE_NO_KEYCHAIN=1`
+  to force the plugin to skip keychain attempts. Tests may set `COPILOT_FAKE_KEYCHAIN=1` to use an
+  in-memory fake keychain for deterministic behavior.
 
 Security recommendation
- - Prefer installing `keytar` on machines you control to reduce exposure of long-lived refresh tokens.
+
+- Prefer installing `keytar` on machines you control to reduce exposure of long-lived refresh tokens.
 
 NEVER log secrets. The plugin never prints refresh/access tokens to logs.
 
 ## Coverage
 
 - We run tests with coverage in CI and upload the coverage report as an artifact named `coverage-report`.
--- Locally run: `npm run test:coverage` (this uses Vitest coverage and outputs `coverage/` with lcov and text reports).
+  -- Locally run: `npm run test:coverage` (this uses Vitest coverage and outputs `coverage/` with lcov and text reports).
 
 Coverage gate policy:
+
 - CI enforces minimum global thresholds to avoid silent regressions.
 - Current minimums: statements 45%, lines 45%, functions 70%, branches 50%.
 - If a change drops coverage below thresholds, either add tests or adjust thresholds with clear technical justification.
