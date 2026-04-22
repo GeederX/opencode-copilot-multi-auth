@@ -300,3 +300,8 @@ NEVER log secrets. The plugin never prints refresh/access tokens to logs.
 
 - We run tests with coverage in CI and upload the coverage report as an artifact named `coverage-report`.
 - Locally run: `npm run test:coverage` (this uses Vitest + c8 and outputs `coverage/` with lcov and text reports).
+
+Coverage gate policy:
+- CI enforces minimum global thresholds to avoid silent regressions.
+- Current minimums: statements 45%, lines 45%, functions 70%, branches 50%.
+- If a change drops coverage below thresholds, either add tests or adjust thresholds with clear technical justification.
