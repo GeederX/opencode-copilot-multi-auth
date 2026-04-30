@@ -38,7 +38,7 @@ type RuntimeAccount = StoredAccount;
 
 const CLIENT_ID = "Ov23li8tweQw6odWQebz";
 const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000;
-const USER_AGENT = "opencode-copilot-multi-auth/0.1.1";
+const USER_AGENT = "opencode-copilot-multi-auth/0.4.0";
 const DEFAULT_COOLDOWN_SECONDS = 90;
 const DEFAULT_MAX_ATTEMPTS = 10;
 const TOKEN_REFRESH_MARGIN_SECONDS = 60; // Refresh token 1 minute before expiry

@@ -1,6 +1,6 @@
 {
   "name": "@geeder/opencode-copilot-multi-auth",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "OpenCode plugin for GitHub Copilot multi-account management with automatic quota-aware failover and model-aware routing",
   "type": "module",
   "main": "./dist/index.js",
